@@ -1,16 +1,12 @@
-// "use client";
-
 import { Metadata } from 'next';
-import { ChallengeContent } from '@/components/ChallengeContent';
 
-interface PageProps {
-  params: {
-    username: string;
-  };
+type Props = {
+  params: { username: string };
+  searchParams: { [key: string]: string | string[] | undefined };
 }
 
 export async function generateMetadata(
-  { params }: PageProps
+  { params }: Props
 ): Promise<Metadata> {
   return {
     title: `Challenge from ${params.username} - The Globetrotter Challenge`,
@@ -18,6 +14,10 @@ export async function generateMetadata(
   };
 }
 
-export default function ChallengePage({ params }: PageProps) {
-  return <ChallengeContent username={params.username} />;
+export default function ChallengeLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return children;
 } 
