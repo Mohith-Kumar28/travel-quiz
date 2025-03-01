@@ -5,12 +5,17 @@ import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { generateGuestName } from "@/lib/utils";
-import { WebSocketProvider, useWebSocket } from "@/lib/WebSocketContext";
+import { useWebSocket } from "@/lib/WebSocketContext";
 import { useRouter } from "next/navigation";
 
 function WaitingRoom({ roomId, username }: { roomId: string; username: string }) {
-  const { currentRoom, setPlayerReady, startGame } = useWebSocket();
+  const { currentRoom, setPlayerReady, startGame, joinRoom } = useWebSocket();
   const router = useRouter();
+
+  useEffect(() => {
+    // Join the room when the component mounts
+    joinRoom(roomId, username);
+  }, [roomId, username, joinRoom]);
 
   useEffect(() => {
     if (currentRoom?.isGameStarted) {
@@ -20,6 +25,7 @@ function WaitingRoom({ roomId, username }: { roomId: string; username: string })
 
   const allPlayersReady = currentRoom?.players.every(p => p.isReady);
   const isHost = currentRoom?.host === username;
+  const currentPlayer = currentRoom?.players.find(p => p.username === username);
 
   return (
     <div className="space-y-6">
@@ -45,8 +51,11 @@ function WaitingRoom({ roomId, username }: { roomId: string; username: string })
       </div>
 
       <div className="flex justify-center gap-4">
-        <Button onClick={() => setPlayerReady(username)}>
-          I&apos;m Ready
+        <Button 
+          onClick={() => setPlayerReady(username)}
+          disabled={currentPlayer?.isReady}
+        >
+          {currentPlayer?.isReady ? "Ready!" : "I'm Ready"}
         </Button>
         {isHost && allPlayersReady && (
           <Button onClick={startGame}>
@@ -167,9 +176,7 @@ export default function Home() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <WebSocketProvider>
-              <HomeContent />
-            </WebSocketProvider>
+            <HomeContent />
           </CardContent>
         </Card>
       </motion.div>

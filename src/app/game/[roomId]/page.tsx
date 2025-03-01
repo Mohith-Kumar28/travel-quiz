@@ -3,16 +3,26 @@
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { GameBoard } from "@/components/GameBoard";
-import { WebSocketProvider, useWebSocket } from "@/lib/WebSocketContext";
+import { useWebSocket } from "@/lib/WebSocketContext";
+import { generateGuestName } from "@/lib/utils";
 
 function GameContent() {
-  const { currentRoom } = useWebSocket();
+  const { currentRoom, joinRoom } = useWebSocket();
   const router = useRouter();
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
 
   useEffect(() => {
-    if (!currentRoom || !currentRoom.isGameStarted) {
+    // If there's no current room or we're in a different room,
+    // join the room with a generated username
+    if (!currentRoom || currentRoom.id !== roomId) {
+      const username = generateGuestName();
+      joinRoom(roomId, username);
+    }
+  }, [currentRoom, roomId, joinRoom]);
+
+  useEffect(() => {
+    if (currentRoom && !currentRoom.isGameStarted) {
       router.push("/");
     }
   }, [currentRoom, router]);
@@ -46,9 +56,5 @@ function GameContent() {
 }
 
 export default function GamePage() {
-  return (
-    <WebSocketProvider>
-      <GameContent />
-    </WebSocketProvider>
-  );
+  return <GameContent />;
 } 
