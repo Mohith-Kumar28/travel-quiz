@@ -56,7 +56,7 @@ export default function Home() {
                   className="w-full p-2 rounded-md border bg-background"
                 />
                 <p className="text-xs text-muted-foreground">
-                  We've generated a random explorer name for you. Feel free to change it!
+                  We&apos;ve generated a random explorer name for you. Feel free to change it!
                 </p>
               </div>
               
