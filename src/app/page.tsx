@@ -181,7 +181,7 @@ export default function Home() {
         <Card className="w-[90vw] max-w-lg">
           <CardHeader className="text-center">
             <CardTitle className="text-3xl font-bold">
-              🌍 The Globetrotter Challenge
+              The Globetrotter Challenge
             </CardTitle>
           </CardHeader>
           <CardContent>
