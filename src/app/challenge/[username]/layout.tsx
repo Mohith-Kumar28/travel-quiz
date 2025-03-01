@@ -1,25 +1,21 @@
-import { Metadata, ResolvingMetadata } from 'next';
+import { Metadata } from 'next';
+
+type Props = {
+  params: Promise<{ username: string }>;
+}
 
 type LayoutProps = {
-  params: { username: string };
   children: React.ReactNode;
 }
 
-type MetadataProps = {
-  params: { username: string };
-  searchParams: { [key: string]: string | string[] | undefined };
-}
-
-export async function generateMetadata(
-  { params }: MetadataProps,
-  parent: ResolvingMetadata
-): Promise<Metadata> {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const username  = (await params).username;
   return {
-    title: `Challenge from ${params.username} - The Globetrotter Challenge`,
-    description: `Can you beat ${params.username}'s score in The Globetrotter Challenge? Test your knowledge of world destinations!`,
+    title: `Challenge from ${username} - The Globetrotter Challenge`,
+    description: `Can you beat ${username}'s score in The Globetrotter Challenge? Test your knowledge of world destinations!`,
   };
 }
 
-export default function ChallengeLayout({ children }: LayoutProps) {
+export default async function ChallengeLayout({ children }: LayoutProps) {
   return children;
 } 

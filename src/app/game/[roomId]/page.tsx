@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { GameBoard } from "@/components/GameBoard";
 import { WebSocketProvider, useWebSocket } from "@/lib/WebSocketContext";
 
-function GameContent({ roomId }: { roomId: string }) {
+function GameContent() {
   const { currentRoom } = useWebSocket();
   const router = useRouter();
+  const params = useParams<{ roomId: string }>();
+  const roomId = params.roomId;
 
   useEffect(() => {
     if (!currentRoom || !currentRoom.isGameStarted) {
@@ -43,14 +45,10 @@ function GameContent({ roomId }: { roomId: string }) {
   );
 }
 
-export default function GamePage({
-  params,
-}: {
-  params: { roomId: string };
-}) {
+export default function GamePage() {
   return (
     <WebSocketProvider>
-      <GameContent roomId={params.roomId} />
+      <GameContent />
     </WebSocketProvider>
   );
 } 
