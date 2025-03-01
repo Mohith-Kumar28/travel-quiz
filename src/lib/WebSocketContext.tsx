@@ -16,6 +16,8 @@ interface Room {
   isGameStarted: boolean;
 }
 
+type MessagePayload = Room | [string, Room][];
+
 interface WebSocketContextType {
   players: Player[];
   currentRoom: Room | null;
@@ -29,10 +31,7 @@ interface WebSocketContextType {
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
 
 // Simulated room storage (in a real app, this would be on the server)
-const rooms = new Map<string, Room>();
-
-// Create a single instance of BroadcastChannel for the app
-const broadcastChannel = new BroadcastChannel('game_updates');
+let rooms = new Map<string, Room>();
 
 export function useWebSocket() {
   const context = useContext(WebSocketContext);
@@ -46,43 +45,65 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
-  // Function to broadcast room updates to all tabs
-  const broadcastRoomUpdate = useCallback((room: Room) => {
-    broadcastChannel.postMessage({ type: 'ROOM_UPDATE', room });
+  // Initialize broadcast channel
+  useEffect(() => {
+    broadcastChannelRef.current = new BroadcastChannel('game_updates');
+    // Request current state when joining
+    broadcastChannelRef.current.postMessage({ type: 'REQUEST_STATE' });
+    return () => {
+      broadcastChannelRef.current?.close();
+    };
   }, []);
 
-  // Function to request current room state
-  const requestRoomState = useCallback((roomId: string) => {
-    broadcastChannel.postMessage({ type: 'REQUEST_ROOM_STATE', roomId });
+  // Function to broadcast updates to all tabs
+  const broadcastUpdate = useCallback((type: string, payload: MessagePayload) => {
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.postMessage({ type, payload });
+    }
   }, []);
 
-  // Listen for room updates from other tabs
+  // Listen for updates from other tabs
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === 'ROOM_UPDATE') {
-        const updatedRoom = event.data.room;
-        // Update local state and storage if it's our room
-        if (currentRoom?.id === updatedRoom.id || !currentRoom) {
+      const { type, payload } = event.data;
+      
+      switch (type) {
+        case 'REQUEST_STATE':
+          // Send current state to other tabs
+          broadcastUpdate('SYNC_ROOMS', Array.from(rooms.entries()));
+          break;
+        
+        case 'SYNC_ROOMS':
+          // Update local rooms state
+          rooms = new Map(payload);
+          // Update current room if we're in one
+          if (currentRoom) {
+            const updatedRoom = rooms.get(currentRoom.id);
+            if (updatedRoom) {
+              setCurrentRoom(updatedRoom);
+              setPlayers(updatedRoom.players);
+            }
+          }
+          break;
+        
+        case 'ROOM_UPDATE':
+          const updatedRoom = payload;
           rooms.set(updatedRoom.id, updatedRoom);
-          setCurrentRoom(updatedRoom);
-          setPlayers(updatedRoom.players);
-        }
-      } else if (event.data.type === 'REQUEST_ROOM_STATE') {
-        // If we have the requested room, broadcast it
-        const room = rooms.get(event.data.roomId);
-        if (room) {
-          broadcastRoomUpdate(room);
-        }
+          if (currentRoom?.id === updatedRoom.id) {
+            setCurrentRoom(updatedRoom);
+            setPlayers(updatedRoom.players);
+          }
+          break;
       }
     };
 
-    broadcastChannel.onmessage = handleMessage;
-
+    broadcastChannelRef.current?.addEventListener('message', handleMessage);
     return () => {
-      broadcastChannel.onmessage = null;
+      broadcastChannelRef.current?.removeEventListener('message', handleMessage);
     };
-  }, [currentRoom, broadcastRoomUpdate]);
+  }, [currentRoom, broadcastUpdate]);
 
   const createRoom = useCallback((username: string) => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -95,69 +116,71 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     rooms.set(roomId, newRoom);
     setCurrentRoom(newRoom);
     setPlayers(newRoom.players);
-    broadcastRoomUpdate(newRoom);
+    broadcastUpdate('ROOM_UPDATE', newRoom);
     return roomId;
-  }, [broadcastRoomUpdate]);
+  }, [broadcastUpdate]);
 
   const joinRoom = useCallback((roomId: string, username: string) => {
-    // First, request current room state from other tabs
-    requestRoomState(roomId);
+    const existingRoom = rooms.get(roomId);
     
-    // Wait a bit for any responses, then proceed with join
-    setTimeout(() => {
-      const existingRoom = rooms.get(roomId);
-      
-      if (!existingRoom) {
-        // If room doesn't exist, create it
-        const newRoom: Room = {
-          id: roomId,
-          host: username,
-          players: [{ username, score: 0, total: 0, isReady: false }],
-          isGameStarted: false
-        };
-        rooms.set(roomId, newRoom);
-        setCurrentRoom(newRoom);
-        setPlayers(newRoom.players);
-        broadcastRoomUpdate(newRoom);
-        return;
-      }
+    if (!existingRoom) {
+      // If room doesn't exist, create it
+      const newRoom: Room = {
+        id: roomId,
+        host: username,
+        players: [{ username, score: 0, total: 0, isReady: false }],
+        isGameStarted: false
+      };
+      rooms.set(roomId, newRoom);
+      setCurrentRoom(newRoom);
+      setPlayers(newRoom.players);
+      broadcastUpdate('ROOM_UPDATE', newRoom);
+      return;
+    }
 
-      // Don't add if player already exists
-      if (!existingRoom.players.some(p => p.username === username)) {
-        const updatedRoom = {
-          ...existingRoom,
-          players: [...existingRoom.players, { 
-            username, 
-            score: 0, 
-            total: 0, 
-            isReady: false 
-          }]
-        };
-        rooms.set(roomId, updatedRoom);
-        setCurrentRoom(updatedRoom);
-        setPlayers(updatedRoom.players);
-        broadcastRoomUpdate(updatedRoom);
-      } else {
-        setCurrentRoom(existingRoom);
-        setPlayers(existingRoom.players);
-      }
-    }, 100); // Small delay to allow for room state responses
-  }, [broadcastRoomUpdate, requestRoomState]);
+    // Check if player already exists
+    const playerExists = existingRoom.players.some(p => p.username === username);
+    
+    if (!playerExists) {
+      // Create a new array with the new player
+      const updatedPlayers = [
+        ...existingRoom.players,
+        { username, score: 0, total: 0, isReady: false }
+      ];
+      
+      const updatedRoom = {
+        ...existingRoom,
+        players: updatedPlayers
+      };
+      
+      rooms.set(roomId, updatedRoom);
+      setCurrentRoom(updatedRoom);
+      setPlayers(updatedPlayers);
+      broadcastUpdate('ROOM_UPDATE', updatedRoom);
+    } else {
+      // If player exists, just update the current state
+      setCurrentRoom(existingRoom);
+      setPlayers(existingRoom.players);
+    }
+  }, [broadcastUpdate]);
 
   const setPlayerReady = useCallback((username: string) => {
     if (!currentRoom) return;
 
+    const updatedPlayers = currentRoom.players.map(p =>
+      p.username === username ? { ...p, isReady: true } : p
+    );
+
     const updatedRoom = {
       ...currentRoom,
-      players: currentRoom.players.map(p =>
-        p.username === username ? { ...p, isReady: true } : p
-      )
+      players: updatedPlayers
     };
+
     rooms.set(currentRoom.id, updatedRoom);
     setCurrentRoom(updatedRoom);
-    setPlayers(updatedRoom.players);
-    broadcastRoomUpdate(updatedRoom);
-  }, [currentRoom, broadcastRoomUpdate]);
+    setPlayers(updatedPlayers);
+    broadcastUpdate('ROOM_UPDATE', updatedRoom);
+  }, [currentRoom, broadcastUpdate]);
 
   const startGame = useCallback(() => {
     if (!currentRoom) return;
@@ -168,8 +191,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     };
     rooms.set(currentRoom.id, updatedRoom);
     setCurrentRoom(updatedRoom);
-    broadcastRoomUpdate(updatedRoom);
-  }, [currentRoom, broadcastRoomUpdate]);
+    broadcastUpdate('ROOM_UPDATE', updatedRoom);
+  }, [currentRoom, broadcastUpdate]);
 
   const updateScore = useCallback((username: string, score: number, total: number) => {
     if (!currentRoom) return;
@@ -179,25 +202,27 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     updateTimeoutRef.current = setTimeout(() => {
+      const updatedPlayers = currentRoom.players.map(p =>
+        p.username === username ? { ...p, score, total } : p
+      );
+
       const updatedRoom = {
         ...currentRoom,
-        players: currentRoom.players.map(p =>
-          p.username === username ? { ...p, score, total } : p
-        )
+        players: updatedPlayers
       };
+
       rooms.set(currentRoom.id, updatedRoom);
       setCurrentRoom(updatedRoom);
-      setPlayers(updatedRoom.players);
-      broadcastRoomUpdate(updatedRoom);
+      setPlayers(updatedPlayers);
+      broadcastUpdate('ROOM_UPDATE', updatedRoom);
     }, 500);
-  }, [currentRoom, broadcastRoomUpdate]);
+  }, [currentRoom, broadcastUpdate]);
 
   useEffect(() => {
     return () => {
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
-      // Don't close the broadcast channel here as it's shared
     };
   }, []);
 

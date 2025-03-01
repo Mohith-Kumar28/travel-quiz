@@ -41,7 +41,10 @@ function WaitingRoom({ roomId, username }: { roomId: string; username: string })
         <div className="space-y-1">
           {currentRoom?.players.map(player => (
             <div key={player.username} className="flex items-center justify-between">
-              <span>{player.username}</span>
+              <span>
+                {player.username}
+                {player.username === username && " (You)"}
+              </span>
               <span className={player.isReady ? "text-green-500" : "text-yellow-500"}>
                 {player.isReady ? "Ready" : "Waiting"}
               </span>
@@ -78,6 +81,13 @@ function HomeContent() {
     setUsername(generateGuestName());
   }, []);
 
+  // Effect to handle room joining
+  useEffect(() => {
+    if (roomId && username) {
+      joinRoom(roomId, username);
+    }
+  }, [roomId, username, joinRoom]);
+
   const handleCreateRoom = () => {
     const newRoomId = createRoom(username);
     setRoomId(newRoomId);
@@ -85,7 +95,6 @@ function HomeContent() {
 
   const handleJoinRoom = () => {
     if (joinRoomId) {
-      joinRoom(joinRoomId.toUpperCase(), username);
       setRoomId(joinRoomId.toUpperCase());
     }
   };
