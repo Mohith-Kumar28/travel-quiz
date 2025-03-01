@@ -1,12 +1,18 @@
-import { Metadata } from 'next';
+import { Metadata, ResolvingMetadata } from 'next';
 
-type Props = {
+type LayoutProps = {
+  params: { username: string };
+  children: React.ReactNode;
+}
+
+type MetadataProps = {
   params: { username: string };
   searchParams: { [key: string]: string | string[] | undefined };
 }
 
 export async function generateMetadata(
-  { params }: Props
+  { params }: MetadataProps,
+  parent: ResolvingMetadata
 ): Promise<Metadata> {
   return {
     title: `Challenge from ${params.username} - The Globetrotter Challenge`,
@@ -14,10 +20,6 @@ export async function generateMetadata(
   };
 }
 
-export default function ChallengeLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function ChallengeLayout({ children }: LayoutProps) {
   return children;
 } 
