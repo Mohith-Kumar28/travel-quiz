@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { GameBoard } from "@/components/GameBoard";
 import { useWebSocket } from "@/lib/WebSocketContext";
@@ -12,15 +12,31 @@ function GameContent() {
   const router = useRouter();
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
+  const [username, setUsername] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // If there's no current room or we're in a different room,
-    // join the room with a generated username
+    console.log("Room effect triggered:", { currentRoom, roomId });
+    
     if (!currentRoom || currentRoom.id !== roomId) {
-      const username = generateGuestName();
-      joinRoom(roomId, username);
+      // If no room or different room, join with new username
+      const generatedUsername = generateGuestName();
+      console.log("Generating new username:", generatedUsername);
+      setUsername(generatedUsername);
+      joinRoom(roomId, generatedUsername);
+    } else {
+      // If we're in the correct room, find our username from the players list
+      const player = currentRoom.players.find(p => p.username === username);
+      if (!player) {
+        // If we can't find our current username in the room, generate a new one
+        const generatedUsername = generateGuestName();
+        console.log("Generating new username for existing room:", generatedUsername);
+        setUsername(generatedUsername);
+        joinRoom(roomId, generatedUsername);
+      }
     }
-  }, [currentRoom, roomId, joinRoom]);
+    setIsLoading(false);
+  }, [currentRoom, roomId, joinRoom, username]);
 
   useEffect(() => {
     if (currentRoom && !currentRoom.isGameStarted) {
@@ -28,7 +44,13 @@ function GameContent() {
     }
   }, [currentRoom, router]);
 
-  if (!currentRoom) return null;
+  if (!currentRoom || isLoading || !username) {
+    return (
+      <div className="container mx-auto p-4 text-center">
+        <p className="text-muted-foreground">Loading game... {!currentRoom ? "Connecting..." : !username ? "Setting up player..." : "Preparing game..."}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -47,13 +69,17 @@ function GameContent() {
         {currentRoom.players.map(player => (
           <Card 
             key={player.username}
-            className="p-4 bg-card text-card-foreground"
+            className={`p-4 ${
+              player.username === username
+                ? "bg-primary/10 border border-primary"
+                : "bg-card"
+            } text-card-foreground`}
           >
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold truncate">
                   {player.username}
-                  {player.username === currentRoom.players[0].username && " (You)"}
+                  {player.username === username && " (You)"}
                 </h3>
                 <span className={
                   player.score === 0 
@@ -81,7 +107,7 @@ function GameContent() {
 
       {/* Game Board */}
       <div className="max-w-3xl mx-auto">
-        <GameBoard username={currentRoom.players[0].username} />
+        <GameBoard username={username} />
       </div>
     </div>
   );

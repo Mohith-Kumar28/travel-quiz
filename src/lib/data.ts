@@ -187,14 +187,19 @@ export const destinations: Destination[] = [
 
 export const getRandomDestination = (): Destination => {
   const randomIndex = Math.floor(Math.random() * destinations.length);
-  return destinations[randomIndex];
+  const destination = destinations[randomIndex];
+  console.log("Selected random destination:", destination.name);
+  return destination;
 };
 
 export const getRandomOptions = (correctAnswer: string): string[] => {
+  console.log("Generating options with correct answer:", correctAnswer);
   const options = new Set<string>([correctAnswer]);
   while (options.size < 4) {
     const randomDest = destinations[Math.floor(Math.random() * destinations.length)];
     options.add(randomDest.name);
   }
-  return Array.from(options).sort(() => Math.random() - 0.5);
+  const shuffledOptions = Array.from(options).sort(() => Math.random() - 0.5);
+  console.log("Generated options:", shuffledOptions);
+  return shuffledOptions;
 }; 

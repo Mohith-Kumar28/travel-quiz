@@ -10,10 +10,12 @@ import { GameProps, Destination } from "@/types";
 import { useWebSocket } from "@/lib/WebSocketContext";
 
 const QUESTION_TIME_LIMIT = 30; // 30 seconds per question
-const MATCH_TIME_LIMIT = 60; // 5 minutes per match
+const MATCH_TIME_LIMIT = 300; // 5 minutes per match
 const TOTAL_QUESTIONS = 10; // 10 questions per match
 
 export function GameBoard({ username }: GameProps) {
+  console.log("GameBoard rendered with username:", username);
+
   const [currentDestination, setCurrentDestination] = useState<Destination | null>(null);
   const [options, setOptions] = useState<string[]>([]);
   const [score, setScore] = useState(0);
@@ -24,40 +26,68 @@ export function GameBoard({ username }: GameProps) {
   const [matchTimeLeft, setMatchTimeLeft] = useState(MATCH_TIME_LIMIT);
   const [isGameOver, setIsGameOver] = useState(false);
   const { updateScore, currentRoom } = useWebSocket();
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
 
   const loadNewDestination = useCallback(() => {
-    const destination = getRandomDestination();
-    setCurrentDestination(destination);
-    setOptions(getRandomOptions(destination.name));
-    setIsAnswered(false);
-    setCurrentClue(0);
-    setTimeLeft(QUESTION_TIME_LIMIT);
+    console.log("Loading new destination");
+    try {
+      const destination = getRandomDestination();
+      console.log("New destination loaded:", destination.name);
+      setCurrentDestination(destination);
+      
+      const newOptions = getRandomOptions(destination.name);
+      console.log("Options generated:", newOptions);
+      setOptions(newOptions);
+      
+      setIsAnswered(false);
+      setCurrentClue(0);
+      setTimeLeft(QUESTION_TIME_LIMIT);
+      setSelectedAnswer(null);
+    } catch (error) {
+      console.error("Error loading new destination:", error);
+    }
   }, []);
 
   // Question timer effect
   useEffect(() => {
-    if (isAnswered || isGameOver) return;
+    if (isAnswered || isGameOver || !currentDestination) return;
 
+    console.log("Starting question timer with", QUESTION_TIME_LIMIT, "seconds");
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
+          console.log("Question time ended, marking as answered");
           clearInterval(timer);
           setIsAnswered(true);
           setTotalPlayed((prev) => prev + 1);
+          
+          // Update score when time runs out
+          if (username) {
+            console.log("Time's up, updating score for", username);
+            updateScore(username, score, totalPlayed + 1);
+          }
+          
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [isAnswered, currentDestination, isGameOver]);
+    return () => {
+      console.log("Clearing question timer");
+      clearInterval(timer);
+    };
+  }, [isAnswered, currentDestination, isGameOver, username, score, totalPlayed, updateScore]);
 
   // Match timer effect
   useEffect(() => {
+    if (isGameOver) return; // Don't start timer if game is already over
+    
+    console.log("Starting match timer with", MATCH_TIME_LIMIT, "seconds");
     const timer = setInterval(() => {
       setMatchTimeLeft((prev) => {
         if (prev <= 1) {
+          console.log("Match time ended, setting game over");
           clearInterval(timer);
           setIsGameOver(true);
           return 0;
@@ -66,18 +96,15 @@ export function GameBoard({ username }: GameProps) {
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, []);
+    return () => {
+      console.log("Clearing match timer");
+      clearInterval(timer);
+    };
+  }, [isGameOver]); // Only re-run if isGameOver changes
 
   useEffect(() => {
     loadNewDestination();
   }, [loadNewDestination]);
-
-  useEffect(() => {
-    if (username) {
-      updateScore(username, score, totalPlayed);
-    }
-  }, [score, totalPlayed, username, updateScore]);
 
   // Check if game should end
   useEffect(() => {
@@ -87,17 +114,55 @@ export function GameBoard({ username }: GameProps) {
   }, [totalPlayed]);
 
   const handleAnswer = (answer: string) => {
-    setIsAnswered(true);
-    setTotalPlayed((prev) => prev + 1);
+    console.log("handleAnswer called with:", answer);
+    console.log("Current state:", {
+      username,
+      isAnswered,
+      currentDestination: currentDestination?.name,
+      options
+    });
 
+    if (!username || isAnswered) {
+      console.log("Answer rejected:", {
+        reason: !username ? "no username" : "already answered",
+        username,
+        isAnswered
+      });
+      return;
+    }
+
+    console.log("Processing answer:", {
+      selected: answer,
+      correct: currentDestination?.name,
+      isCorrect: answer === currentDestination?.name
+    });
+    
+    setSelectedAnswer(answer);
+    setIsAnswered(true);
+    const newTotalPlayed = totalPlayed + 1;
+    setTotalPlayed(newTotalPlayed);
+
+    let newScore = score;
     if (answer === currentDestination?.name) {
-      setScore((prev) => prev + 1);
+      console.log("Correct answer! Updating score");
+      newScore = score + 1;
+      setScore(newScore);
       confetti({
         particleCount: 100,
         spread: 70,
         origin: { y: 0.6 }
       });
+    } else {
+      console.log("Incorrect answer");
     }
+
+    // Update score immediately and ensure it's broadcasted
+    console.log("Broadcasting score update:", {
+      username,
+      newScore,
+      newTotalPlayed
+    });
+    updateScore(username, newScore, newTotalPlayed);
   };
 
   const handleNextClue = () => {
@@ -107,22 +172,36 @@ export function GameBoard({ username }: GameProps) {
   };
 
   const handleNextQuestion = () => {
+    console.log("Next question requested, total played:", totalPlayed, "of", TOTAL_QUESTIONS);
     if (totalPlayed >= TOTAL_QUESTIONS) {
+      console.log("All questions completed, setting game over");
       setIsGameOver(true);
     } else {
+      console.log("Loading next question");
       loadNewDestination();
     }
   };
 
+  // Move username check to the render section
+  if (!username) {
+    console.log("GameBoard: No username provided");
+    return (
+      <Card className="p-6">
+        <p className="text-center text-muted-foreground">Waiting for username...</p>
+      </Card>
+    );
+  }
+
   if (isGameOver) {
-    // Sort players by score
+    // Sort players by score percentage
     const sortedPlayers = [...(currentRoom?.players || [])].sort((a, b) => {
       const scoreA = (a.score / (a.total || 1)) * 100;
       const scoreB = (b.score / (b.total || 1)) * 100;
-      return scoreB - scoreA;
+      return scoreB - scoreA || b.score - a.score; // If percentages are equal, compare absolute scores
     });
 
     const currentPlayer = sortedPlayers.find(p => p.username === username);
+    const winner = sortedPlayers[0];
     const playerRank = sortedPlayers.findIndex(p => p.username === username) + 1;
 
     return (
@@ -131,7 +210,9 @@ export function GameBoard({ username }: GameProps) {
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-bold">🏁 Game Over!</h2>
             <p className="text-muted-foreground">
-              Time&apos;s up! Here are the final results:
+              {winner.username === username ? 
+                "Congratulations! You won! 🎉" : 
+                `Game won by ${winner.username}! 🏆`}
             </p>
           </div>
 
@@ -145,6 +226,8 @@ export function GameBoard({ username }: GameProps) {
                   className={`p-4 rounded-lg ${
                     player.username === username
                       ? "bg-primary/10 border border-primary"
+                      : index === 0
+                      ? "bg-yellow-500/10 border border-yellow-500"
                       : "bg-muted"
                   }`}
                 >
@@ -154,6 +237,7 @@ export function GameBoard({ username }: GameProps) {
                       <span className="font-medium">
                         {player.username}
                         {player.username === username && " (You)"}
+                        {index === 0 && " 👑"}
                       </span>
                     </div>
                     <div className="text-right">
@@ -172,12 +256,19 @@ export function GameBoard({ username }: GameProps) {
 
           {/* Player Stats */}
           {currentPlayer && (
-            <div className="bg-muted p-6 rounded-lg text-center space-y-2">
+            <div className={`p-6 rounded-lg text-center space-y-2 ${
+              playerRank === 1 ? "bg-yellow-500/10" : "bg-muted"
+            }`}>
               <p className="text-lg">
-                You finished {playerRank === 1 ? "🏆 First Place!" : `#${playerRank}`}
+                {playerRank === 1 ? (
+                  <span>🏆 You Won! 🎉</span>
+                ) : (
+                  <span>You finished #{playerRank}</span>
+                )}
               </p>
               <p className="text-muted-foreground">
                 With {currentPlayer.score} correct answers out of {currentPlayer.total} questions
+                ({((currentPlayer.score / (currentPlayer.total || 1)) * 100).toFixed(0)}%)
               </p>
             </div>
           )}
@@ -186,7 +277,13 @@ export function GameBoard({ username }: GameProps) {
     );
   }
 
-  if (!currentDestination) return null;
+  if (!currentDestination) {
+    return (
+      <Card className="p-6">
+        <p className="text-center text-muted-foreground">Loading destination...</p>
+      </Card>
+    );
+  }
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -260,10 +357,10 @@ export function GameBoard({ username }: GameProps) {
                   <p className="font-medium text-lg">
                     {timeLeft === 0 ? (
                       <span className="text-red-500">⏰ Time&apos;s up!</span>
-                    ) : currentDestination.name === options[0] ? (
+                    ) : selectedAnswer === currentDestination.name ? (
                       <span className="text-green-500">🎉 Correct!</span>
                     ) : (
-                      <span className="text-red-500">😢 Not quite...</span>
+                      <span className="text-red-500">😢 Not quite... The correct answer was {currentDestination.name}</span>
                     )}
                   </p>
                   <p className="text-sm text-muted-foreground">

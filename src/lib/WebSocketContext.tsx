@@ -60,7 +60,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   // Function to broadcast updates to all tabs
   const broadcastUpdate = useCallback((type: string, payload: MessagePayload) => {
     if (broadcastChannelRef.current) {
+      console.log("Broadcasting message:", type, payload);
       broadcastChannelRef.current.postMessage({ type, payload });
+    } else {
+      console.error("Broadcast channel not initialized");
     }
   }, []);
 
@@ -69,19 +72,25 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     const handleMessage = (event: MessageEvent) => {
       const { type, payload } = event.data;
       
+      console.log("Received message:", type, payload);
+      
       switch (type) {
         case 'REQUEST_STATE':
           // Send current state to other tabs
+          console.log("Sending current state to other tabs");
           broadcastUpdate('SYNC_ROOMS', Array.from(rooms.entries()));
           break;
         
         case 'SYNC_ROOMS':
           // Update local rooms state
+          console.log("Syncing rooms from other tab");
           rooms = new Map(payload);
           // Update current room if we're in one
           if (currentRoom) {
             const updatedRoom = rooms.get(currentRoom.id);
             if (updatedRoom) {
+              console.log("Updating current room from sync:", updatedRoom);
+              // Update state immediately without transition
               setCurrentRoom(updatedRoom);
               setPlayers(updatedRoom.players);
             }
@@ -90,8 +99,11 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         
         case 'ROOM_UPDATE':
           const updatedRoom = payload;
+          console.log("Room update received:", updatedRoom);
           rooms.set(updatedRoom.id, updatedRoom);
           if (currentRoom?.id === updatedRoom.id) {
+            console.log("Updating current room:", updatedRoom);
+            // Update state immediately without transition
             setCurrentRoom(updatedRoom);
             setPlayers(updatedRoom.players);
           }
@@ -195,27 +207,39 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   }, [currentRoom, broadcastUpdate]);
 
   const updateScore = useCallback((username: string, score: number, total: number) => {
-    if (!currentRoom) return;
-
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
+    if (!currentRoom) {
+      console.error("Cannot update score: No current room");
+      return;
     }
 
-    updateTimeoutRef.current = setTimeout(() => {
-      const updatedPlayers = currentRoom.players.map(p =>
-        p.username === username ? { ...p, score, total } : p
-      );
+    console.log("WebSocketContext: Updating score for", username, "to", score, "/", total);
+    console.log("Current room players:", currentRoom.players);
 
-      const updatedRoom = {
-        ...currentRoom,
-        players: updatedPlayers
-      };
+    // Update score immediately without debouncing
+    const updatedPlayers = currentRoom.players.map(p => {
+      if (p.username === username) {
+        console.log("Found player to update:", p.username);
+        return { ...p, score, total };
+      }
+      return p;
+    });
 
-      rooms.set(currentRoom.id, updatedRoom);
-      setCurrentRoom(updatedRoom);
-      setPlayers(updatedPlayers);
-      broadcastUpdate('ROOM_UPDATE', updatedRoom);
-    }, 500);
+    console.log("Updated players:", updatedPlayers);
+
+    const updatedRoom = {
+      ...currentRoom,
+      players: updatedPlayers
+    };
+
+    // Update the rooms map first
+    rooms.set(currentRoom.id, updatedRoom);
+
+    // Update local state immediately without transition
+    setCurrentRoom(updatedRoom);
+    setPlayers(updatedPlayers);
+
+    // Broadcast to other tabs immediately
+    broadcastUpdate('ROOM_UPDATE', updatedRoom);
   }, [currentRoom, broadcastUpdate]);
 
   useEffect(() => {
